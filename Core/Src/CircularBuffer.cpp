@@ -33,6 +33,18 @@
 	    return sum;
 	}
 
+	float CircularBuffer::getPrevious()
+	{
+	    if (back == 1) // because back is immediately incremented after an add
+	    {
+	        return eep[MAX-1];
+	    }
+	    else
+	    {
+	        return eep[back-2]; // because back is immediately incremented after an add
+	    }
+	}
+
 	/*void CircularBuffer::printData()
 	{
 	    for (int i=0; i<sizeof(eep)/sizeof(eep[0]); i++)

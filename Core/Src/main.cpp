@@ -35,6 +35,9 @@
 #define SPR 64
 #define MOTOR_A 0
 #define MOTOR_B 1
+
+#define SPEEDOFSOUND 343.0 // meters/s
+#define MICSPACING 0.1016 // in meters
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -66,6 +69,7 @@ int partial = 0;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
+void rectangular2Spherical(float*, float*, float);
 void moveMotor(bool, bool, float);
 
 /* USER CODE END PFP */
@@ -90,11 +94,12 @@ int main(void)
 	float distance2Source = 0.0;
 
 	// Coordinate Variables
+	float rectangular[3];
 	float xCoord = 0.0;
 	float yCoord = 0.0;
 	float zCoord = 0.0;
 
-	float rDistance = std::sqrt(xCoord*xCoord + yCoord*yCoord);
+	float spherical[2];
 	bool AziDirection = 0;
 	bool AltiDirection = 0;
 	float AziDeg = 0.0;
@@ -155,12 +160,7 @@ int main(void)
 	  // locate keyword in x-y-z
 
 	  // coordinates are converted to azimuth-altitude
-	  // invcos(r/d) = altitude where r is the xy distance r = sqrt(x^2 + y^2)
-	  // invtan(y/x) = azimuth
-	  /*
-	   * targetDegA = std::atan(yCoord/xCoord);
-	   * targetDegB = std::acos(rDistance/distance2source);
-	   */
+	  rectangular2Spherical(rectangular, spherical, distance2Source);
 
 	  // PIDs are given degrees
 	  /*
@@ -296,6 +296,23 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void rectangular2Spherical(float rect[], float sph[], float dist)
+{
+	float r = sqrt(rect[0]*rect[0] + rect[1]*rect[1]);
+	sph[0] = std::atan(rect[1]/rect[0]);
+	sph[1] = std::acos(r/dist);
+}
+
+void calculateTrilateration(float (&frame)[200], float (&answer)[3])
+{
+	/*
+	 * Function takes 2 arrays as input: the current frame and a container for the answer.
+	 */
+
+	frame;
+
+
+}
 
 void moveMotor(bool motor, bool dir, float degrees)
 {

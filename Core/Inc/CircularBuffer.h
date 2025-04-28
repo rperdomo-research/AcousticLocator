@@ -24,6 +24,7 @@
 		bool isEmpty();
 		void empty();
 		float getSum();
+		float getPrevious();
 
 	};
 

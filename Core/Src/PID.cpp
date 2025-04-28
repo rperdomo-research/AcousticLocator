@@ -18,7 +18,7 @@
 
     void PID::setError(float e)
     {
-    	setPreviousError();
+    	//setPreviousError();
         error = e;
         errors.add(e);
     }
@@ -38,16 +38,16 @@
         return accumulatedError;
     }
 
-    void PID::setPreviousError()
+    /*void PID::setPreviousError()
     {
     	previousError = error;
-    }
+    }*/
 
     float PID::getSignal()
     {
         sum += propertionalGain*error;
         sum += integralGain*errors.getSum();
-        sum += derivativeGain*(error - previousError);
+        sum += derivativeGain*(error - errors.getPrevious());
 
         return sum;
     }

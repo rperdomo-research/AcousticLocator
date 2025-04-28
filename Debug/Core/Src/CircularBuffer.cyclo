@@ -1,5 +1,6 @@
 ../Core/Src/CircularBuffer.cpp:4:2:CircularBuffer::CircularBuffer()	1
 ../Core/Src/CircularBuffer.cpp:6:7:void CircularBuffer::add(float)	4
 ../Core/Src/CircularBuffer.cpp:26:8:float CircularBuffer::getSum()	2
-../Core/Src/CircularBuffer.cpp:44:7:bool CircularBuffer::isEmpty()	1
-../Core/Src/CircularBuffer.cpp:49:7:void CircularBuffer::empty()	2
+../Core/Src/CircularBuffer.cpp:36:8:float CircularBuffer::getPrevious()	2
+../Core/Src/CircularBuffer.cpp:56:7:bool CircularBuffer::isEmpty()	1
+../Core/Src/CircularBuffer.cpp:61:7:void CircularBuffer::empty()	2

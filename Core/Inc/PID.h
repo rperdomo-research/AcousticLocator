@@ -12,7 +12,7 @@
         void addError(float e);
         float getAccError();
         float getSignal();
-        void setPreviousError();
+        //void setPreviousError();
     
     private:
         // Private members
@@ -23,7 +23,7 @@
 	    float accumulatedError=0.0;
 	    float error=0.0;
 	    float sum=0.0;
-	    float previousError = 0.0;
+	    //float previousError = 0.0;
 
     };
     

@@ -3,7 +3,6 @@
 ../Core/Src/PID.cpp:26:10:void PID::resetAccumulatedError()	16	static
 ../Core/Src/PID.cpp:31:10:void PID::addError(float)	16	static
 ../Core/Src/PID.cpp:36:11:float PID::getAccError()	16	static
-../Core/Src/PID.cpp:41:10:void PID::setPreviousError()	16	static
 ../Core/Src/PID.cpp:46:11:float PID::getSignal()	24	static
 ../Core/Src/PID.cpp:53:5:void __static_initialization_and_destruction_0()	8	static
 ../Core/Src/PID.cpp:53:5:cpp)	8	static
