@@ -32,7 +32,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SPR 64
+#define SPR 128
 #define MOTOR_A 0
 #define MOTOR_B 1
 
@@ -87,6 +87,17 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	int outputSeq[8][4] = {
+			{0, 0, 0, 1},
+			{0, 0, 1, 1},
+			{0, 0, 1, 0},
+			{0, 1, 1, 0},
+			{0, 1, 0, 0},
+			{1, 1, 0, 0},
+			{1, 0, 0, 0},
+			{1, 0, 0, 1}
+	};
+
 	PID controlMotorA(0.5, 0.1, 0.0);
 	PID controlMotorB(0.5, 0.1, 0.0);
 
@@ -317,39 +328,46 @@ void calculateTrilateration(float (&frame)[200], float (&answer)[3])
 void moveMotor(bool motor, bool dir, float degrees)
 {
 	//convert degrees to steps where spr is steps per revolution
-	steps = std::round((degrees * SPR) / 360);
-	full = 0;
-	partial = 0;
+	int steps = (int)((degrees * SPR) / 360);
+
 	// choose motor
-	if (!motor)
+	if (!dir)
 	{
 		// set azimuth motor direction (0 - left, 1 - right)
 
-		partial = steps%8;
-
-		if (steps >= 8)
+		for (int i=0; i < steps; i++)
 		{
-			full = (int)(steps/8);
-			for (int i=0; i<full; i++)
+			for (int k=0; k < 8; k++)
 			{
-				stepArr[i][0]; // assign to specific GPIO for IN1
-				stepArr[i][1]; // assign to specific GPIO for IN2
-				stepArr[i][2]; // assign to specific GPIO for IN3
-				stepArr[i][3]; // assign to specific GPIO for IN4
+				// write motorPin to outputSeq
+				/*
+				 * digitalWrite(motorPins[0], outputSeq[i][0]); // assign to specific GPIO for IN1
+				 * digitalWrite(motorPins[1], outputSeq[i][1]); // assign to specific GPIO for IN2
+				 * digitalWrite(motorPins[2], outputSeq[i][2]); // assign to specific GPIO for IN3
+				 * digitalWrite(motorPins[3], outputSeq[i][3]);
+				 * small delay
+				 */
 			}
-		}
-
-		for (int i=0; i<partial; i++)
-		{
-			stepArr[i][0]; // assign to specific GPIO for IN1
-			stepArr[i][1]; // assign to specific GPIO for IN2
-			stepArr[i][2]; // assign to specific GPIO for IN3
-			stepArr[i][3]; // assign to specific GPIO for IN4
 		}
 	}
 	else
 	{
 		// set altitude motor direction (0 - left, 1 - right)
+
+		for (int i=0; i < steps; i++)
+		{
+			for (int k=8; k > 0; k--)
+			{
+				// write motorPin to outputSeq
+				/*
+				 * digitalWrite(motorPins[0], outputSeq[i][0]); // assign to specific GPIO for IN1
+				 * digitalWrite(motorPins[1], outputSeq[i][1]); // assign to specific GPIO for IN2
+				 * digitalWrite(motorPins[2], outputSeq[i][2]); // assign to specific GPIO for IN3
+				 * digitalWrite(motorPins[3], outputSeq[i][3]);
+				 * small delay
+				 */
+			}
+		}
 	}
 }
 
