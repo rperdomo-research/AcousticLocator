@@ -21,6 +21,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <PID.h>
+#include <CircularBuffer.h>
 #include <cmath>
 
 /* USER CODE END Includes */
@@ -32,12 +33,16 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SPR 128
-#define MOTOR_A 0
-#define MOTOR_B 1
+#define SPR 				128
+#define AZIMUTH_MOTOR 		0
+#define ELEVATION_MOTOR 	1
 
-#define SPEEDOFSOUND 343.0 // meters/s
-#define MICSPACING 0.1016 // in meters
+#define SPEEDOFSOUND 		343.0 // meters/s
+#define MICSPACING 			0.1016 // in meters
+#define DIR_CCW				0
+#define DIR_CW				1
+
+#define CLK_PRD				8.33e-9
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -46,36 +51,74 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim2;
 
 /* USER CODE BEGIN PV */
-int stepArr[8][4] = {
-			{1, 0, 0, 0},
-			{1, 1, 0, 0},
-			{0, 1, 0, 0},
-			{0, 1, 1, 0},
-			{1, 0, 1, 0},
-			{1, 0, 1, 1},
-			{1, 0, 0, 1},
-			{1, 0, 0, 1}
+GPIO_PinState outputSeq[8][4] = {
+			{GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_SET},
+			{GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET},
+			{GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_RESET},
+			{GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_RESET},
+			{GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_RESET, GPIO_PIN_RESET},
+			{GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_RESET, GPIO_PIN_RESET},
+			{GPIO_PIN_SET, GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_RESET},
+			{GPIO_PIN_SET, GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_SET}
 	};
 
-int steps = 0;
-int full = 0;
-int partial = 0;
 
+int steps = 0;
+
+bool timer2BreakFlag = 1;
+
+uint32_t mic1TimerCapture = 0;
+uint32_t mic2TimerCapture = 0;
+uint32_t mic3TimerCapture = 0;
+
+bool mic1Triggered = 0;
+bool mic2Triggered = 0;
+bool mic3Triggered = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 void rectangular2Spherical(float*, float*, float);
+void moveMotor(bool, bool, float);
+void useMotor(bool, uint16_t*);
 void moveMotor(bool, bool, float);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim->Channel == TIM_CHANNEL_1)
+	{
+		mic1Triggered = 1;
+		mic1TimerCapture = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+	}
+
+	if (htim->Channel == TIM_CHANNEL_2)
+	{
+		mic2Triggered = 1;
+		mic2TimerCapture = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2);
+	}
+
+	if (htim->Channel == TIM_CHANNEL_3)
+	{
+		mic3Triggered = 1;
+		mic3TimerCapture = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_3);
+	}
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
+	timer2BreakFlag = 1;
+}
 
 /* USER CODE END 0 */
 
@@ -87,21 +130,16 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	int outputSeq[8][4] = {
-			{0, 0, 0, 1},
-			{0, 0, 1, 1},
-			{0, 0, 1, 0},
-			{0, 1, 1, 0},
-			{0, 1, 0, 0},
-			{1, 1, 0, 0},
-			{1, 0, 0, 0},
-			{1, 0, 0, 1}
-	};
 
-	PID controlMotorA(0.5, 0.1, 0.0);
-	PID controlMotorB(0.5, 0.1, 0.0);
+	PID controlAzimuthMotor(0.5, 0.1, 0.0);
+	PID controlElevationMotor(0.5, 0.1, 0.0);
 
+	// Init Buffer
+	CircularBuffer frame;
 	// Signal Processing Variables
+	float time1 = 0;
+	float time2 = 0;
+	float time3 = 0;
 	float distance2Source = 0.0;
 
 	// Coordinate Variables
@@ -147,7 +185,14 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_TIM1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
+  HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
+  HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_2);
+  HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_3);
+
+  HAL_TIM_Base_Start_IT(&htim1);
 
   /* USER CODE END 2 */
 
@@ -164,6 +209,37 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  if ( mic1Triggered && mic2Triggered && mic3Triggered)
+	  {
+
+		  if (timer2BreakFlag)
+		  {
+			  // calculate position
+			  time1 = CLK_PRD*mic1TimerCapture;
+			  time2 = CLK_PRD*mic2TimerCapture;
+			  time3 = CLK_PRD*mic3TimerCapture;
+
+
+			  mic1Triggered = 0;
+			  mic2Triggered = 0;
+			  mic3Triggered = 0;
+
+			  TIM1->CNT = 0;
+			  timer2BreakFlag = 0;
+
+		  }
+
+	  }
+//	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+//	  HAL_Delay(500);
+//	  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+//	  HAL_Delay(500);
+
+	  moveMotor(AZIMUTH_MOTOR, DIR_CW, 45.0);
+	  HAL_Delay(1000);
+	  moveMotor(AZIMUTH_MOTOR, DIR_CCW, 45.0);
+	  HAL_Delay(1000);
+
 	  // sound detected (mic interrupts)
 
 	  // processing looking for keyword
@@ -171,7 +247,7 @@ int main(void)
 	  // locate keyword in x-y-z
 
 	  // coordinates are converted to azimuth-altitude
-	  rectangular2Spherical(rectangular, spherical, distance2Source);
+	  //rectangular2Spherical(rectangular, spherical, distance2Source);
 
 	  // PIDs are given degrees
 	  /*
@@ -252,6 +328,109 @@ void SystemClock_Config(void)
   }
 }
 
+static void MX_TIM1_Init(void)
+{
+
+  /* USER CODE BEGIN TIM1_Init 0 */
+
+  /* USER CODE END TIM1_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM1_Init 1 */
+
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 60000-1;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 65535;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
+
+  /* USER CODE END TIM1_Init 2 */
+
+}
+
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_IC_InitTypeDef sConfigIC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4294967295;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
+  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
+  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
+  sConfigIC.ICFilter = 0;
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
 /**
   * @brief GPIO Initialization Function
   * @param None
@@ -259,51 +438,72 @@ void SystemClock_Config(void)
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	  /* USER CODE BEGIN MX_GPIO_Init_1 */
 
-  /* USER CODE END MX_GPIO_Init_1 */
+	  /* USER CODE END MX_GPIO_Init_1 */
 
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
+	  /* GPIO Ports Clock Enable */
+	  __HAL_RCC_GPIOC_CLK_ENABLE();
+	  __HAL_RCC_GPIOF_CLK_ENABLE();
+	  __HAL_RCC_GPIOH_CLK_ENABLE();
+	  __HAL_RCC_GPIOD_CLK_ENABLE();
+	  __HAL_RCC_GPIOG_CLK_ENABLE();
+	  __HAL_RCC_GPIOE_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+	  /*Configure GPIO pin Output Level */
+	  HAL_GPIO_WritePin(GPIOF, GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+	  /*Configure GPIO pin Output Level */
+	  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_6, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PF0 PF1 PF2 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+	  /*Configure GPIO pin Output Level */
+	  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : STLINK_RX_Pin STLINK_TX_Pin */
-  GPIO_InitStruct.Pin = STLINK_RX_Pin|STLINK_TX_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+	  /*Configure GPIO pin : B1_Pin */
+	  GPIO_InitStruct.Pin = B1_Pin;
+	  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	  GPIO_InitStruct.Pull = GPIO_NOPULL;
+	  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LD2_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+	  /*Configure GPIO pins : PF0 PF1 PF2 */
+	  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2;
+	  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+	  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+	  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
+	  /*Configure GPIO pins : PF4 PF5 PF6 */
+	  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6;
+	  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	  GPIO_InitStruct.Pull = GPIO_NOPULL;
+	  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
 
-  /* USER CODE END MX_GPIO_Init_2 */
+	  /*Configure GPIO pins : STLINK_RX_Pin STLINK_TX_Pin */
+	  GPIO_InitStruct.Pin = STLINK_RX_Pin|STLINK_TX_Pin;
+	  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+	  GPIO_InitStruct.Pull = GPIO_NOPULL;
+	  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	  GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
+	  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+	  /*Configure GPIO pin : PG6 */
+	  GPIO_InitStruct.Pin = GPIO_PIN_6;
+	  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	  GPIO_InitStruct.Pull = GPIO_NOPULL;
+	  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	  HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
+
+	  /*Configure GPIO pin : LD2_Pin */
+	  GPIO_InitStruct.Pin = LD2_Pin;
+	  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	  GPIO_InitStruct.Pull = GPIO_NOPULL;
+	  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
+
+	  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+	  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -320,17 +520,35 @@ void calculateTrilateration(float (&frame)[200], float (&answer)[3])
 	 * Function takes 2 arrays as input: the current frame and a container for the answer.
 	 */
 
-	frame;
+	//frame;
 
 
+}
+
+void useMotor(bool mtr, uint16_t* pins)
+{
+	if (!mtr)
+	{
+		pins[0] = GPIO_PIN_4;
+		pins[1] = GPIO_PIN_5;
+		pins[2] = GPIO_PIN_6;
+		pins[3] = GPIO_PIN_6;
+	}
+
+//	else
+//	{
+//		// other pins
+//	}
 }
 
 void moveMotor(bool motor, bool dir, float degrees)
 {
 	//convert degrees to steps where spr is steps per revolution
 	int steps = (int)((degrees * SPR) / 360);
+	uint16_t motorPins[4];
+	useMotor(motor, motorPins);
 
-	// choose motor
+
 	if (!dir)
 	{
 		// set azimuth motor direction (0 - left, 1 - right)
@@ -340,13 +558,11 @@ void moveMotor(bool motor, bool dir, float degrees)
 			for (int k=0; k < 8; k++)
 			{
 				// write motorPin to outputSeq
-				/*
-				 * digitalWrite(motorPins[0], outputSeq[i][0]); // assign to specific GPIO for IN1
-				 * digitalWrite(motorPins[1], outputSeq[i][1]); // assign to specific GPIO for IN2
-				 * digitalWrite(motorPins[2], outputSeq[i][2]); // assign to specific GPIO for IN3
-				 * digitalWrite(motorPins[3], outputSeq[i][3]);
-				 * small delay
-				 */
+				HAL_GPIO_WritePin(GPIOF, motorPins[0], outputSeq[i][0]); // assign to specific GPIO for IN1
+				HAL_GPIO_WritePin(GPIOF, motorPins[1], outputSeq[i][1]); // assign to specific GPIO for IN2
+				HAL_GPIO_WritePin(GPIOF, motorPins[2], outputSeq[i][2]); // assign to specific GPIO for IN3
+				HAL_GPIO_WritePin(GPIOG, motorPins[3], outputSeq[i][3]); // assign to specific GPIO for IN4
+				HAL_Delay(50);
 			}
 		}
 	}
@@ -359,13 +575,11 @@ void moveMotor(bool motor, bool dir, float degrees)
 			for (int k=8; k > 0; k--)
 			{
 				// write motorPin to outputSeq
-				/*
-				 * digitalWrite(motorPins[0], outputSeq[i][0]); // assign to specific GPIO for IN1
-				 * digitalWrite(motorPins[1], outputSeq[i][1]); // assign to specific GPIO for IN2
-				 * digitalWrite(motorPins[2], outputSeq[i][2]); // assign to specific GPIO for IN3
-				 * digitalWrite(motorPins[3], outputSeq[i][3]);
-				 * small delay
-				 */
+				HAL_GPIO_WritePin(GPIOF, motorPins[0], outputSeq[i][0]); // assign to specific GPIO for IN1
+				HAL_GPIO_WritePin(GPIOF, motorPins[1], outputSeq[i][1]); // assign to specific GPIO for IN2
+				HAL_GPIO_WritePin(GPIOF, motorPins[2], outputSeq[i][2]); // assign to specific GPIO for IN3
+				HAL_GPIO_WritePin(GPIOG, motorPins[3], outputSeq[i][3]); // assign to specific GPIO for IN4
+				HAL_Delay(50);
 			}
 		}
 	}

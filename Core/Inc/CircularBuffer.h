@@ -8,7 +8,8 @@
 #ifndef INC_CIRCULARBUFFER_H_
 #define INC_CIRCULARBUFFER_H_
 
-	#define MAX 5
+	// Assuming 10kHz sampling rate with 20ms windows: # of samples = 200
+	#define MAX 200
 
 	class CircularBuffer
 	{
